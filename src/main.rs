@@ -1,3 +1,9 @@
+use app::run;
+use pollster::block_on;
+
+mod app;
+mod state;
+
 fn main() {
-    println!("Hello, world!");
+    block_on(run())
 }
