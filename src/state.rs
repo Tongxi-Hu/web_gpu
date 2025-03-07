@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytemuck::cast_slice;
+use rand::{Rng, rng};
 use wgpu::{
     Adapter, BindGroup, Buffer, Device, Instance, Queue, RenderPipeline, Surface,
     SurfaceCapabilities, SurfaceConfiguration, SurfaceError, util::DeviceExt,
@@ -8,6 +9,8 @@ use wgpu::{
 use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
+
+const OBJ_COUNT: usize = 100;
 
 pub struct State<'a> {
     surface: Surface<'a>,
@@ -17,9 +20,7 @@ pub struct State<'a> {
     config: SurfaceConfiguration,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
-    uniform: [f32; 8],
-    uniform_buffer: Buffer,
-    uniform_bind_group: BindGroup,
+    objs: Vec<(Buffer, BindGroup)>,
 }
 
 impl<'a> State<'a> {
@@ -96,41 +97,76 @@ impl<'a> State<'a> {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        //uniform buffer
-        let infos: [f32; 8] = [
-            0.0, 1.0, 0.0, 1.0, //
-            0.5, 0.5, //
-            -0.5, -0.25, //
-        ];
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Uniform Buffer"),
-            contents: cast_slice(&[infos]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
-                label: Some("Uniform Bind Group Layout"),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: None,
             });
 
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Uniform Bind Group"),
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
+        let mut rng = rng();
+
+        let mut objs = vec![];
+        for _ in 0..OBJ_COUNT {
+            let static_info = [
+                rng.random(),
+                rng.random(),
+                rng.random(),
+                1.0, //
+                rng.random(),
+                rng.random(), //
+                0.0,
+                0.0, //
+            ];
+
+            let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: cast_slice(&static_info),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+            let dyn_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: cast_slice(&[0.5, 0.5]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &uniform_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: static_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: dyn_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+            objs.push((dyn_buffer, uniform_bind_group))
+        }
 
         //prepare render pipeline
         let render_pipeline_layout =
@@ -188,9 +224,7 @@ impl<'a> State<'a> {
             config,
             window: window_arc,
             render_pipeline,
-            uniform: infos,
-            uniform_buffer,
-            uniform_bind_group,
+            objs,
         }
     }
 
@@ -199,9 +233,6 @@ impl<'a> State<'a> {
         self.config.width = self.size.width;
         self.config.height = self.size.height;
         self.surface.configure(&self.device, &self.config);
-        let ratio = (self.config.width as f32) / (self.config.height as f32);
-        self.uniform[4] = 0.5 / ratio;
-        self.uniform[5] = 0.5;
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
@@ -211,9 +242,6 @@ impl<'a> State<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        self.queue
-            .write_buffer(&self.uniform_buffer, 0, cast_slice(&self.uniform));
-        //set render pipeline
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -237,8 +265,13 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.draw(0..3, 0..1);
+            let ratio = (self.config.width as f32) / (self.config.height as f32);
+            for i in 0..OBJ_COUNT {
+                self.queue
+                    .write_buffer(&self.objs[i].0, 0, cast_slice(&[0.5 / ratio, 0.5]));
+                render_pass.set_bind_group(0, &self.objs[i].1, &[]);
+                render_pass.draw(0..3, 0..1);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
