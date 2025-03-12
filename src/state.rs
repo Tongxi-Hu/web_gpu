@@ -20,7 +20,7 @@ pub struct State<'a> {
     config: SurfaceConfiguration,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
-    objs: Vec<(Buffer, BindGroup)>,
+    objs: Vec<(Buffer, BindGroup, f32)>,
 }
 
 impl<'a> State<'a> {
@@ -159,7 +159,8 @@ impl<'a> State<'a> {
                     },
                 ],
             });
-            objs.push((dyn_buffer, uniform_bind_group))
+            let scale: f32 = rng.random();
+            objs.push((dyn_buffer, uniform_bind_group, scale))
         }
 
         //shader
@@ -267,8 +268,11 @@ impl<'a> State<'a> {
             render_pass.set_pipeline(&self.render_pipeline);
             let ratio = (self.config.width as f32) / (self.config.height as f32);
             for i in 0..OBJ_COUNT {
-                self.queue
-                    .write_buffer(&self.objs[i].0, 0, cast_slice(&[0.5 / ratio, 0.5]));
+                self.queue.write_buffer(
+                    &self.objs[i].0,
+                    0,
+                    cast_slice(&[self.objs[i].2 * 0.5 / ratio, self.objs[i].2 * 0.5]),
+                );
                 render_pass.set_bind_group(0, &self.objs[i].1, &[]);
                 render_pass.draw(0..3, 0..1);
             }
