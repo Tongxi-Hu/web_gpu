@@ -91,12 +91,6 @@ impl<'a> State<'a> {
         let config = Self::create_surface_config(size, surface_caps);
         surface.configure(&device, &config);
 
-        //shader
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
-
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -167,6 +161,12 @@ impl<'a> State<'a> {
             });
             objs.push((dyn_buffer, uniform_bind_group))
         }
+
+        //shader
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
 
         //prepare render pipeline
         let render_pipeline_layout =
