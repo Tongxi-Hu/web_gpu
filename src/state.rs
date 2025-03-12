@@ -10,7 +10,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
 
-const OBJ_COUNT: usize = 100;
+const OBJ_COUNT: usize = 50;
 
 pub struct State<'a> {
     surface: Surface<'a>,
@@ -127,18 +127,18 @@ impl<'a> State<'a> {
         let mut rng = rng();
 
         let mut objs = vec![];
-        for _ in 0..OBJ_COUNT {
-            let static_info = [
+        for i in 0..OBJ_COUNT {
+            // f32 is required here
+            let static_info: [f32; 4 * 2] = [
                 rng.random(),
                 rng.random(),
                 rng.random(),
-                1.0, //
-                rng.random(),
-                rng.random(), //
+                (i as f32) * 0.01, //
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-1.0..1.0),
                 0.0,
-                0.0, //
+                0.0,
             ];
-
             let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
                 contents: cast_slice(&static_info),
