@@ -127,13 +127,13 @@ impl<'a> State<'a> {
         let mut rng = rng();
 
         let mut objs = vec![];
-        for i in 0..OBJ_COUNT {
+        for _ in 0..OBJ_COUNT {
             // f32 is required here
             let static_info: [f32; 4 * 2] = [
                 rng.random(),
                 rng.random(),
                 rng.random(),
-                (i as f32) * 0.01, //
+                1.0, // alpha value will be neglected if "alpha_mode" is set to "opaque"
                 rng.random_range(-1.0..1.0),
                 rng.random_range(-1.0..1.0),
                 0.0,
