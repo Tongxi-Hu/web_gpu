@@ -11,6 +11,8 @@ use winit::{dpi::PhysicalSize, window::Window};
 use pollster::FutureExt;
 
 const OBJ_COUNT: usize = 50;
+type StaticInfo = [[f32; 8]; OBJ_COUNT];
+type DynInfo = [[f32; 2]; OBJ_COUNT];
 
 pub struct State<'a> {
     surface: Surface<'a>,
@@ -20,7 +22,10 @@ pub struct State<'a> {
     config: SurfaceConfiguration,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
-    objs: Vec<(Buffer, BindGroup, f32)>,
+    scales: [f32; OBJ_COUNT],
+    dyn_info: DynInfo,
+    dyn_buffer: Buffer,
+    bind_group: BindGroup,
 }
 
 impl<'a> State<'a> {
@@ -98,7 +103,7 @@ impl<'a> State<'a> {
                         binding: 0,
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -108,7 +113,7 @@ impl<'a> State<'a> {
                         binding: 1,
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -120,10 +125,13 @@ impl<'a> State<'a> {
 
         let mut rng = rng();
 
-        let mut objs = vec![];
-        for _ in 0..OBJ_COUNT {
-            // f32 is required here
-            let static_info: [f32; 4 * 2] = [
+        // init buffer data
+        // f32 is required here
+        let mut static_info: StaticInfo = [[1.0; 8]; OBJ_COUNT];
+        let mut dyn_info: DynInfo = [[1.0; 2]; OBJ_COUNT];
+        let mut scales: [f32; OBJ_COUNT] = [1.0; OBJ_COUNT];
+        for i in 0..OBJ_COUNT {
+            static_info[i] = [
                 rng.random(),
                 rng.random(),
                 rng.random(),
@@ -133,51 +141,51 @@ impl<'a> State<'a> {
                 0.0,
                 0.0,
             ];
-            let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: cast_slice(&static_info),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            let dyn_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: cast_slice(&[0.5, 0.5]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &uniform_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: static_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: dyn_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-            let scale: f32 = rng.random();
-            objs.push((dyn_buffer, uniform_bind_group, scale))
+            dyn_info[i] = [0.5, 0.5];
+            scales[i] = rng.random::<f32>();
         }
 
+        let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&static_info),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let dyn_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&dyn_info),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: static_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: dyn_buffer.as_entire_binding(),
+                },
+            ],
+        });
         //shader
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: None,
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
         //prepare render pipeline
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
+                label: None,
                 bind_group_layouts: &[&uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
+            label: None,
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -225,7 +233,10 @@ impl<'a> State<'a> {
             config,
             window: window_arc,
             render_pipeline,
-            objs,
+            scales,
+            dyn_info,
+            dyn_buffer,
+            bind_group,
         }
     }
 
@@ -234,15 +245,20 @@ impl<'a> State<'a> {
         self.config.width = self.size.width;
         self.config.height = self.size.height;
         self.surface.configure(&self.device, &self.config);
+        let ratio = (self.config.width as f32) / (self.config.height as f32);
+        //update dyn_buffer
+        for i in 0..OBJ_COUNT {
+            self.dyn_info[i] = [self.scales[i] / ratio, self.scales[i]]
+        }
+        self.queue
+            .write_buffer(&self.dyn_buffer, 0, cast_slice(&self.dyn_info));
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
         let output = self.surface.get_current_texture().unwrap();
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -266,16 +282,8 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
-            let ratio = (self.config.width as f32) / (self.config.height as f32);
-            for i in 0..OBJ_COUNT {
-                self.queue.write_buffer(
-                    &self.objs[i].0,
-                    0,
-                    cast_slice(&[self.objs[i].2 * 0.5 / ratio, self.objs[i].2 * 0.5]),
-                );
-                render_pass.set_bind_group(0, &self.objs[i].1, &[]);
-                render_pass.draw(0..3, 0..1);
-            }
+            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.draw(0..3, 0..(OBJ_COUNT as u32));
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
