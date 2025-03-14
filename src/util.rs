@@ -3,8 +3,8 @@ pub fn create_annulus_vertices<const DIVISION: usize>(
     inner_radius: f32,
     start_angle: f32,
     end_angle: f32,
-) -> [[f32; 3 * 2 * 2]; DIVISION] {
-    let mut vertices = [[0.0; 3 * 2 * 2]; DIVISION];
+) -> [[f32; 12]; DIVISION] {
+    let mut vertices = [[0.0; 12]; DIVISION];
     let angle_gap = (end_angle - start_angle) / (DIVISION as f32);
     for i in 0..DIVISION {
         let angle1 = start_angle + (i as f32) * angle_gap;
