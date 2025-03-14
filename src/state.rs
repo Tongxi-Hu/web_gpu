@@ -12,8 +12,8 @@ use pollster::FutureExt;
 
 use crate::util::create_annulus_vertices;
 
-const OBJ_COUNT: usize = 50;
-const DIVISION: usize = 24;
+const OBJ_COUNT: usize = 5;
+const DIVISION: usize = 64;
 type StaticInfo = [[f32; 8]; OBJ_COUNT];
 type DynInfo = [[f32; 2]; OBJ_COUNT];
 
