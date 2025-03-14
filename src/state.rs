@@ -10,7 +10,10 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
 
+use crate::util::create_annulus_vertices;
+
 const OBJ_COUNT: usize = 50;
+const DIVISION: usize = 24;
 type StaticInfo = [[f32; 8]; OBJ_COUNT];
 type DynInfo = [[f32; 2]; OBJ_COUNT];
 
@@ -119,6 +122,16 @@ impl<'a> State<'a> {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: None,
             });
@@ -157,6 +170,15 @@ impl<'a> State<'a> {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
+        let vertex_info =
+            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, std::f32::consts::PI * 2.0);
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&vertex_info),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &uniform_bind_group_layout,
@@ -168,6 +190,10 @@ impl<'a> State<'a> {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: dyn_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: vertex_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -283,7 +309,7 @@ impl<'a> State<'a> {
             });
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.bind_group, &[]);
-            render_pass.draw(0..3, 0..(OBJ_COUNT as u32));
+            render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..(OBJ_COUNT as u32));
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
