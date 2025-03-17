@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bytemuck::cast_slice;
 use rand::{Rng, rng};
 use wgpu::{
-    Adapter, BindGroup, Buffer, Device, Instance, Queue, RenderPipeline, Surface,
-    SurfaceCapabilities, SurfaceConfiguration, SurfaceError, util::DeviceExt,
+    Adapter, Buffer, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
+    SurfaceConfiguration, SurfaceError, VertexAttribute, VertexBufferLayout, util::DeviceExt,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -14,7 +14,7 @@ use crate::util::create_annulus_vertices;
 
 const OBJ_COUNT: usize = 5;
 const DIVISION: usize = 64;
-type StaticInfo = [[f32; 8]; OBJ_COUNT];
+type StaticInfo = [[f32; 6]; OBJ_COUNT];
 type DynInfo = [[f32; 2]; OBJ_COUNT];
 
 pub struct State<'a> {
@@ -27,8 +27,9 @@ pub struct State<'a> {
     render_pipeline: RenderPipeline,
     scales: [f32; OBJ_COUNT],
     dyn_info: DynInfo,
+    static_buffer: Buffer,
     dyn_buffer: Buffer,
-    bind_group: BindGroup,
+    vertex_buffer: Buffer,
 }
 
 impl<'a> State<'a> {
@@ -99,48 +100,21 @@ impl<'a> State<'a> {
         let config = Self::create_surface_config(size, surface_caps);
         surface.configure(&device, &config);
 
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-                label: None,
-            });
+        // vertex buffer
+        let vertex_info =
+            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, std::f32::consts::PI * 2.0);
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&vertex_info),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
 
         let mut rng = rng();
 
         // init buffer data
         // f32 is required here
-        let mut static_info: StaticInfo = [[1.0; 8]; OBJ_COUNT];
+        let mut static_info: StaticInfo = [[1.0; 6]; OBJ_COUNT];
         let mut dyn_info: DynInfo = [[1.0; 2]; OBJ_COUNT];
         let mut scales: [f32; OBJ_COUNT] = [1.0; OBJ_COUNT];
         for i in 0..OBJ_COUNT {
@@ -151,8 +125,6 @@ impl<'a> State<'a> {
                 1.0, // alpha value will be neglected if "alpha_mode" is set to "opaque"
                 rng.random_range(-1.0..1.0),
                 rng.random_range(-1.0..1.0),
-                0.0,
-                0.0,
             ];
             dyn_info[i] = [0.5, 0.5];
             scales[i] = rng.random::<f32>();
@@ -161,42 +133,15 @@ impl<'a> State<'a> {
         let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: cast_slice(&static_info),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let dyn_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: cast_slice(&dyn_info),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        let vertex_info =
-            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, std::f32::consts::PI * 2.0);
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: cast_slice(&vertex_info),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &uniform_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: static_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: dyn_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-            ],
-        });
         //shader
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -207,7 +152,7 @@ impl<'a> State<'a> {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&uniform_bind_group_layout],
+                bind_group_layouts: &[],
                 push_constant_ranges: &[],
             });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -216,7 +161,42 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs"),
-                buffers: &[],
+                buffers: &[
+                    VertexBufferLayout {
+                        array_stride: 2 * 4,
+                        attributes: &[VertexAttribute {
+                            shader_location: 0,
+                            offset: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        }],
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                    },
+                    VertexBufferLayout {
+                        array_stride: 6 * 4,
+                        attributes: &[
+                            VertexAttribute {
+                                shader_location: 1,
+                                offset: 0,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            VertexAttribute {
+                                shader_location: 2,
+                                offset: 4 * 4,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                        ],
+                        step_mode: wgpu::VertexStepMode::Instance,
+                    },
+                    VertexBufferLayout {
+                        array_stride: 2 * 4,
+                        attributes: &[VertexAttribute {
+                            shader_location: 3,
+                            offset: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        }],
+                        step_mode: wgpu::VertexStepMode::Instance,
+                    },
+                ],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -260,9 +240,10 @@ impl<'a> State<'a> {
             window: window_arc,
             render_pipeline,
             scales,
+            vertex_buffer,
+            static_buffer,
             dyn_info,
             dyn_buffer,
-            bind_group,
         }
     }
 
@@ -308,7 +289,9 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.static_buffer.slice(..));
+            render_pass.set_vertex_buffer(2, self.dyn_buffer.slice(..));
             render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..(OBJ_COUNT as u32));
         }
         self.queue.submit(std::iter::once(encoder.finish()));
