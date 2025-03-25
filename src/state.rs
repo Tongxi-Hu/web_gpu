@@ -307,40 +307,37 @@ impl<'a> State<'a> {
             .write_buffer(&self.dyn_buffer, 0, cast_slice(&self.dyn_info));
     }
 
-    //FIXME: render takes ~100ms when obj_count ~10000
     pub fn render(&mut self) -> Result<(), SurfaceError> {
-        let render_start = Instant::now();
         self.update_location_velocity();
+        let before_texture = Instant::now();
+        //FIXME: get_current_texture is time consuming
         let output = self.surface.get_current_texture()?;
+        println!("{:?}", Instant::now().duration_since(before_texture));
         let view = output.texture.create_view(&Default::default());
-
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.static_buffer.slice(..));
-            render_pass.set_vertex_buffer(2, self.dyn_buffer.slice(..));
-            render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..OBJ_COUNT as u32);
-        }
 
-        self.queue.submit(Some(encoder.finish()));
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.static_buffer.slice(..));
+        render_pass.set_vertex_buffer(2, self.dyn_buffer.slice(..));
+        render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..OBJ_COUNT as u32);
+        drop(render_pass);
+        self.queue.submit([encoder.finish()]);
         output.present();
-        let render_end = Instant::now();
-        println!("render: {:?}", render_end.duration_since(render_start));
         Ok(())
     }
 
