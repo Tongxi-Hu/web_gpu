@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{f32, sync::Arc, time::Instant};
 
 use bytemuck::cast_slice;
 use rand::{Rng, rng};
@@ -10,12 +10,10 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
 
-use crate::util::create_annulus_vertices;
-
-const OBJ_COUNT: usize = 5;
-const DIVISION: usize = 64;
-type StaticInfo = [[f32; 6]; OBJ_COUNT];
-type DynInfo = [[f32; 2]; OBJ_COUNT];
+use crate::{
+    configuration::{DIVISION, DynInfo, OBJ_COUNT, StaticInfo, TIME_STEP},
+    util::create_annulus_vertices,
+};
 
 pub struct State<'a> {
     surface: Surface<'a>,
@@ -26,6 +24,7 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
     scales: [f32; OBJ_COUNT],
+    velocities: [[f32; 2]; OBJ_COUNT],
     dyn_info: DynInfo,
     static_buffer: Buffer,
     dyn_buffer: Buffer,
@@ -102,7 +101,7 @@ impl<'a> State<'a> {
 
         // vertex buffer
         let vertex_info =
-            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, std::f32::consts::PI * 2.0);
+            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, f32::consts::PI * 2.0);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -114,20 +113,25 @@ impl<'a> State<'a> {
 
         // init buffer data
         // f32 is required here
-        let mut static_info: StaticInfo = [[1.0; 6]; OBJ_COUNT];
-        let mut dyn_info: DynInfo = [[1.0; 2]; OBJ_COUNT];
+        let mut static_info: StaticInfo = [[1.0; 4]; OBJ_COUNT];
+        let mut dyn_info: DynInfo = [[1.0; 4]; OBJ_COUNT];
         let mut scales: [f32; OBJ_COUNT] = [1.0; OBJ_COUNT];
+        let mut velocities: [[f32; 2]; OBJ_COUNT] = [[0.0, 0.0]; OBJ_COUNT];
         for i in 0..OBJ_COUNT {
             static_info[i] = [
                 rng.random(),
                 rng.random(),
                 rng.random(),
                 1.0, // alpha value will be neglected if "alpha_mode" is set to "opaque"
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
             ];
-            dyn_info[i] = [0.5, 0.5];
+            dyn_info[i] = [
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-1.0..1.0),
+                0.5,
+                0.5,
+            ];
             scales[i] = rng.random::<f32>();
+            velocities[i] = [rng.random_range(0.1..0.2), rng.random_range(0.1..0.2)];
         }
 
         let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -172,28 +176,28 @@ impl<'a> State<'a> {
                         step_mode: wgpu::VertexStepMode::Vertex,
                     },
                     VertexBufferLayout {
-                        array_stride: 6 * 4,
-                        attributes: &[
-                            VertexAttribute {
-                                shader_location: 1,
-                                offset: 0,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
-                            VertexAttribute {
-                                shader_location: 2,
-                                offset: 4 * 4,
-                                format: wgpu::VertexFormat::Float32x2,
-                            },
-                        ],
+                        array_stride: 4 * 4,
+                        attributes: &[VertexAttribute {
+                            shader_location: 1,
+                            offset: 0,
+                            format: wgpu::VertexFormat::Float32x4,
+                        }],
                         step_mode: wgpu::VertexStepMode::Instance,
                     },
                     VertexBufferLayout {
-                        array_stride: 2 * 4,
-                        attributes: &[VertexAttribute {
-                            shader_location: 3,
-                            offset: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        }],
+                        array_stride: 4 * 4,
+                        attributes: &[
+                            VertexAttribute {
+                                shader_location: 2,
+                                offset: 0,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                            VertexAttribute {
+                                shader_location: 3,
+                                offset: 2 * 4,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                        ],
                         step_mode: wgpu::VertexStepMode::Instance,
                     },
                 ],
@@ -240,6 +244,7 @@ impl<'a> State<'a> {
             window: window_arc,
             render_pipeline,
             scales,
+            velocities,
             vertex_buffer,
             static_buffer,
             dyn_info,
@@ -255,32 +260,69 @@ impl<'a> State<'a> {
         let ratio = (self.config.width as f32) / (self.config.height as f32);
         //update dyn_buffer
         for i in 0..OBJ_COUNT {
-            self.dyn_info[i] = [self.scales[i] / ratio, self.scales[i]]
+            self.dyn_info[i] = [
+                self.dyn_info[i][0],
+                self.dyn_info[i][1],
+                self.scales[i] / ratio,
+                self.scales[i],
+            ]
         }
         self.queue
             .write_buffer(&self.dyn_buffer, 0, cast_slice(&self.dyn_info));
     }
 
+    fn update_location_velocity(&mut self) {
+        for i in 0..OBJ_COUNT {
+            let (mut new_vx, mut new_vy) = (self.velocities[i][0], self.velocities[i][1]);
+            let mut new_x = new_vx * TIME_STEP + &self.dyn_info[i][0];
+            let mut new_y = new_vy * TIME_STEP + &self.dyn_info[i][1];
+            match new_x {
+                x if x >= 1.0 => {
+                    new_x = 1.0;
+                    new_vx = -new_vx;
+                }
+                x if x <= -1.0 => {
+                    new_x = -1.0;
+                    new_vx = -new_vx;
+                }
+                _ => {}
+            }
+            match new_y {
+                y if y >= 1.0 => {
+                    new_y = 1.0;
+                    new_vy = -new_vy;
+                }
+                y if y <= -1.0 => {
+                    new_y = -1.0;
+                    new_vy = -new_vy;
+                }
+                _ => {}
+            }
+            self.dyn_info[i][0] = new_x;
+            self.dyn_info[i][1] = new_y;
+            self.velocities[i][0] = new_vx;
+            self.velocities[i][1] = new_vy;
+        }
+        self.queue
+            .write_buffer(&self.dyn_buffer, 0, cast_slice(&self.dyn_info));
+    }
+
+    //FIXME: render takes ~100ms when obj_count ~10000
     pub fn render(&mut self) -> Result<(), SurfaceError> {
-        let output = self.surface.get_current_texture().unwrap();
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let render_start = Instant::now();
+        self.update_location_velocity();
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&Default::default());
+
+        let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+                label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &output
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default()),
+                    view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -292,10 +334,13 @@ impl<'a> State<'a> {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.static_buffer.slice(..));
             render_pass.set_vertex_buffer(2, self.dyn_buffer.slice(..));
-            render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..(OBJ_COUNT as u32));
+            render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..OBJ_COUNT as u32);
         }
-        self.queue.submit(std::iter::once(encoder.finish()));
+
+        self.queue.submit(Some(encoder.finish()));
         output.present();
+        let render_end = Instant::now();
+        println!("render: {:?}", render_end.duration_since(render_start));
         Ok(())
     }
 
