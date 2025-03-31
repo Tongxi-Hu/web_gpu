@@ -1,24 +1,30 @@
 struct Vertex {
     @location(0) position: vec2<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) offset: vec2<f32>,
-    @location(3) scales: vec2<f32>,
+}
+
+struct Uniform {
+    color: vec4<f32>,
+    resolution: vec2<f32>
 }
 
 struct Inter {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
 }
 
+@group(0) @binding(0) var<uniform> uni: Uniform;
+
 @vertex
-fn vs(vertex: Vertex, @builtin(instance_index) instance_index: u32) -> Inter {
-    var output: Inter;
-    output.color = vertex.color;
-    output.position = vec4<f32>(vertex.position * vertex.scales + vertex.offset, 0.0, 1.0);
-    return output;
+fn vs(vert: Vertex) -> Inter {
+    let zero_to_one=vert.position/uni.resolution;
+    let zero_to_two=zero_to_one*2.0;
+    let flipped_clip_space=zero_to_two-1.0;
+    let clip_space=flipped_clip_space*vec2<f32>(1.0,-1.0);
+    var out: Inter;
+    out.position = vec4<f32>(clip_space, 0.0, 1.0);
+    return out;
 }
 
 @fragment
-fn fs(inter: Inter) -> @location(0) vec4<f32> {
-    return inter.color;
+fn fs() -> @location(0) vec4<f32> {
+    return uni.color;
 }

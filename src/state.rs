@@ -1,19 +1,17 @@
-use std::{f32, sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use bytemuck::cast_slice;
 use rand::{Rng, rng};
 use wgpu::{
-    Adapter, Buffer, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
-    SurfaceConfiguration, SurfaceError, VertexAttribute, VertexBufferLayout, util::DeviceExt,
+    Adapter, BindGroup, Buffer, Device, Instance, Queue, RenderPipeline, Surface,
+    SurfaceCapabilities, SurfaceConfiguration, SurfaceError, VertexAttribute, VertexBufferLayout,
+    util::DeviceExt,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
 
-use crate::{
-    configuration::{DIVISION, DynInfo, OBJ_COUNT, StaticInfo, TIME_STEP},
-    util::create_annulus_vertices,
-};
+use crate::util::create_f_vertices;
 
 pub struct State<'a> {
     surface: Surface<'a>,
@@ -23,12 +21,12 @@ pub struct State<'a> {
     config: SurfaceConfiguration,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
-    scales: [f32; OBJ_COUNT],
-    velocities: [[f32; 2]; OBJ_COUNT],
-    dyn_info: DynInfo,
-    static_buffer: Buffer,
-    dyn_buffer: Buffer,
     vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_size: usize,
+    bind_group_value: [f32; 8],
+    bind_group_buffer: Buffer,
+    bind_group: BindGroup,
 }
 
 impl<'a> State<'a> {
@@ -99,9 +97,8 @@ impl<'a> State<'a> {
         let config = Self::create_surface_config(size, surface_caps);
         surface.configure(&device, &config);
 
-        // vertex buffer
-        let vertex_info =
-            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, f32::consts::PI * 2.0);
+        //buffer
+        let (vertex_info, index_info, index_size) = create_f_vertices();
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -109,41 +106,51 @@ impl<'a> State<'a> {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        let mut rng = rng();
-
-        // init buffer data
-        // f32 is required here
-        let mut static_info: StaticInfo = [[1.0; 4]; OBJ_COUNT];
-        let mut dyn_info: DynInfo = [[1.0; 4]; OBJ_COUNT];
-        let mut scales: [f32; OBJ_COUNT] = [1.0; OBJ_COUNT];
-        let mut velocities: [[f32; 2]; OBJ_COUNT] = [[0.0, 0.0]; OBJ_COUNT];
-        for i in 0..OBJ_COUNT {
-            static_info[i] = [
-                rng.random(),
-                rng.random(),
-                rng.random(),
-                1.0, // alpha value will be neglected if "alpha_mode" is set to "opaque"
-            ];
-            dyn_info[i] = [
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-                0.5,
-                0.5,
-            ];
-            scales[i] = rng.random::<f32>();
-            velocities[i] = [rng.random_range(0.1..0.2), rng.random_range(0.1..0.2)];
-        }
-
-        let static_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: cast_slice(&static_info),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            contents: cast_slice(&index_info),
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        let dyn_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        // uniform
+        let mut rng = rng();
+        let bind_group_value = [
+            rng.random_range(0.0..1.0),
+            rng.random_range(0.0..1.0),
+            rng.random_range(0.0..1.0),
+            1.0, //color
+            1.0,
+            1.0, //resolution
+            0.0,
+            0.0, //padding
+        ];
+        let bind_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: cast_slice(&dyn_info),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            contents: cast_slice(&bind_group_value),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bind_group_buffer.as_entire_binding(),
+            }],
         });
 
         //shader
@@ -156,51 +163,25 @@ impl<'a> State<'a> {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs"),
-                buffers: &[
-                    VertexBufferLayout {
-                        array_stride: 2 * 4,
-                        attributes: &[VertexAttribute {
-                            shader_location: 0,
-                            offset: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        }],
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                    },
-                    VertexBufferLayout {
-                        array_stride: 4 * 4,
-                        attributes: &[VertexAttribute {
-                            shader_location: 1,
-                            offset: 0,
-                            format: wgpu::VertexFormat::Float32x4,
-                        }],
-                        step_mode: wgpu::VertexStepMode::Instance,
-                    },
-                    VertexBufferLayout {
-                        array_stride: 4 * 4,
-                        attributes: &[
-                            VertexAttribute {
-                                shader_location: 2,
-                                offset: 0,
-                                format: wgpu::VertexFormat::Float32x2,
-                            },
-                            VertexAttribute {
-                                shader_location: 3,
-                                offset: 2 * 4,
-                                format: wgpu::VertexFormat::Float32x2,
-                            },
-                        ],
-                        step_mode: wgpu::VertexStepMode::Instance,
-                    },
-                ],
+                buffers: &[VertexBufferLayout {
+                    array_stride: 2 * 4,
+                    attributes: &[VertexAttribute {
+                        shader_location: 0,
+                        offset: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    }],
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                }],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -243,12 +224,12 @@ impl<'a> State<'a> {
             config,
             window: window_arc,
             render_pipeline,
-            scales,
-            velocities,
             vertex_buffer,
-            static_buffer,
-            dyn_info,
-            dyn_buffer,
+            index_buffer,
+            index_size,
+            bind_group_value,
+            bind_group_buffer,
+            bind_group,
         }
     }
 
@@ -257,62 +238,18 @@ impl<'a> State<'a> {
         self.config.width = self.size.width;
         self.config.height = self.size.height;
         self.surface.configure(&self.device, &self.config);
-        let ratio = (self.config.width as f32) / (self.config.height as f32);
-        //update dyn_buffer
-        for i in 0..OBJ_COUNT {
-            self.dyn_info[i] = [
-                self.dyn_info[i][0],
-                self.dyn_info[i][1],
-                self.scales[i] / ratio,
-                self.scales[i],
-            ]
-        }
-        self.queue
-            .write_buffer(&self.dyn_buffer, 0, cast_slice(&self.dyn_info));
-    }
-
-    fn update_location_velocity(&mut self) {
-        for i in 0..OBJ_COUNT {
-            let (mut new_vx, mut new_vy) = (self.velocities[i][0], self.velocities[i][1]);
-            let mut new_x = new_vx * TIME_STEP + &self.dyn_info[i][0];
-            let mut new_y = new_vy * TIME_STEP + &self.dyn_info[i][1];
-            match new_x {
-                x if x >= 1.0 => {
-                    new_x = 1.0;
-                    new_vx = -new_vx;
-                }
-                x if x <= -1.0 => {
-                    new_x = -1.0;
-                    new_vx = -new_vx;
-                }
-                _ => {}
-            }
-            match new_y {
-                y if y >= 1.0 => {
-                    new_y = 1.0;
-                    new_vy = -new_vy;
-                }
-                y if y <= -1.0 => {
-                    new_y = -1.0;
-                    new_vy = -new_vy;
-                }
-                _ => {}
-            }
-            self.dyn_info[i][0] = new_x;
-            self.dyn_info[i][1] = new_y;
-            self.velocities[i][0] = new_vx;
-            self.velocities[i][1] = new_vy;
-        }
-        self.queue
-            .write_buffer(&self.dyn_buffer, 0, cast_slice(&self.dyn_info));
+        self.bind_group_value[4] = self.size.width as f32;
+        self.bind_group_value[5] = self.size.height as f32;
+        self.queue.write_buffer(
+            &self.bind_group_buffer,
+            0,
+            cast_slice(&self.bind_group_value),
+        );
+        println!("{:?}", self.bind_group_value);
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
-        self.update_location_velocity();
-        let before_texture = Instant::now();
-        //FIXME: get_current_texture is time consuming
         let output = self.surface.get_current_texture()?;
-        println!("{:?}", Instant::now().duration_since(before_texture));
         let view = output.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
@@ -332,9 +269,9 @@ impl<'a> State<'a> {
         });
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.static_buffer.slice(..));
-        render_pass.set_vertex_buffer(2, self.dyn_buffer.slice(..));
-        render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..OBJ_COUNT as u32);
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+        render_pass.draw_indexed(0..self.index_size as u32, 0, 0..1);
         drop(render_pass);
         self.queue.submit([encoder.finish()]);
         output.present();
