@@ -11,7 +11,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
 
-use crate::util::create_f_vertices;
+use crate::util::{INDEX_DATA, INDEX_SIZE, VERTEX_DATA};
 
 pub struct State<'a> {
     surface: Surface<'a>,
@@ -23,7 +23,6 @@ pub struct State<'a> {
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
     index_buffer: Buffer,
-    index_size: usize,
     bind_group_value: [f32; 8],
     bind_group_buffer: Buffer,
     bind_group: BindGroup,
@@ -46,7 +45,7 @@ impl<'a> State<'a> {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            present_mode: capabilities.present_modes[0],
             alpha_mode: capabilities.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -97,19 +96,16 @@ impl<'a> State<'a> {
         let config = Self::create_surface_config(size, surface_caps);
         surface.configure(&device, &config);
 
-        //buffer
-        let (vertex_info, index_info, index_size) = create_f_vertices();
-
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: cast_slice(&vertex_info),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            contents: cast_slice(VERTEX_DATA),
+            usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: cast_slice(&index_info),
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            contents: cast_slice(INDEX_DATA),
+            usage: wgpu::BufferUsages::INDEX,
         });
 
         // uniform
@@ -119,10 +115,10 @@ impl<'a> State<'a> {
             rng.random_range(0.0..1.0),
             rng.random_range(0.0..1.0),
             1.0, //color
-            1.0,
-            1.0, //resolution
+            1600.0,
+            1400.0, //resolution
             0.0,
-            0.0, //padding
+            0.0, //translation
         ];
         let bind_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -134,7 +130,7 @@ impl<'a> State<'a> {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 count: None,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
@@ -226,7 +222,6 @@ impl<'a> State<'a> {
             render_pipeline,
             vertex_buffer,
             index_buffer,
-            index_size,
             bind_group_value,
             bind_group_buffer,
             bind_group,
@@ -245,10 +240,20 @@ impl<'a> State<'a> {
             0,
             cast_slice(&self.bind_group_value),
         );
-        println!("{:?}", self.bind_group_value);
+    }
+
+    pub fn update_translation(&mut self) {
+        self.bind_group_value[6] = self.bind_group_value[6] + 20.0;
+        self.bind_group_value[7] = self.bind_group_value[7] + 20.0;
+        self.queue.write_buffer(
+            &self.bind_group_buffer,
+            0,
+            cast_slice(&self.bind_group_value),
+        );
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
+        self.update_translation();
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -271,7 +276,7 @@ impl<'a> State<'a> {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.draw_indexed(0..self.index_size as u32, 0, 0..1);
+        render_pass.draw_indexed(0..INDEX_SIZE as u32, 0, 0..1);
         drop(render_pass);
         self.queue.submit([encoder.finish()]);
         output.present();

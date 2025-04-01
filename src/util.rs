@@ -43,18 +43,16 @@
 //     vertices
 // }
 
-pub fn create_f_vertices() -> ([u32; 24], [u16; 18], usize) {
-    let vertex_data: [u32; 24] = [
-        0, 0, 30, 0, 0, 150, 30, 150, // left column
-        30, 0, 100, 0, 30, 30, 100, 30, // top rung
-        30, 60, 70, 60, 30, 90, 70, 90, // middle rung
-    ];
+pub const VERTEX_DATA: &[f32] = &[
+    0.0, 0.0, 30.0, 0.0, 0.0, 150.0, 30.0, 150.0, // left column
+    30.0, 0.0, 100.0, 0.0, 30.0, 30.0, 100.0, 30.0, // top rung
+    30.0, 60.0, 70.0, 60.0, 30.0, 90.0, 70.0, 90.0, // middle rung
+];
 
-    let index_data: [u16; 18] = [
-        0, 1, 2, 2, 1, 3, // left column
-        4, 5, 6, 6, 5, 7, // top run
-        8, 9, 10, 10, 9, 11, // middle run
-    ];
+pub const INDEX_DATA: &[u16] = &[
+    0, 1, 2, 2, 1, 3, // left column
+    4, 5, 6, 6, 5, 7, // top run
+    8, 9, 10, 10, 9, 11, // middle run
+];
 
-    return (vertex_data, index_data, index_data.len());
-}
+pub const INDEX_SIZE: usize = INDEX_DATA.len();
