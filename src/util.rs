@@ -49,10 +49,11 @@ pub const VERTEX_DATA: &[f32] = &[
     30.0, 60.0, 70.0, 60.0, 30.0, 90.0, 70.0, 90.0, // middle rung
 ];
 
-pub const INDEX_DATA: &[u16] = &[
+pub const INDEX_DATA: &[u32] = &[
     0, 1, 2, 2, 1, 3, // left column
     4, 5, 6, 6, 5, 7, // top run
     8, 9, 10, 10, 9, 11, // middle run
+    0, 0, //padding
 ];
 
 pub const INDEX_SIZE: usize = INDEX_DATA.len();
