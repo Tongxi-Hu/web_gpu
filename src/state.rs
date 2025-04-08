@@ -1,4 +1,4 @@
-use std::{f32, sync::Arc, time::Instant};
+use std::{f32, iter::once, sync::Arc, time::Instant};
 
 use bytemuck::cast_slice;
 use rand::{Rng, rng};
@@ -336,7 +336,7 @@ impl<'a> State<'a> {
         render_pass.set_vertex_buffer(2, self.dyn_buffer.slice(..));
         render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..OBJ_COUNT as u32);
         drop(render_pass);
-        self.queue.submit([encoder.finish()]);
+        self.queue.submit(once(encoder.finish()));
         output.present();
         Ok(())
     }
