@@ -11,7 +11,7 @@ struct Inter {
 }
 
 @vertex
-fn vs(vertex: Vertex, @builtin(instance_index) instance_index: u32) -> Inter {
+fn vs(vertex: Vertex) -> Inter {
     var output: Inter;
     output.color = vertex.color;
     output.position = vec4<f32>(vertex.position * vertex.scales + vertex.offset, 0.0, 1.0);
