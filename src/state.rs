@@ -9,11 +9,6 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use pollster::FutureExt;
 
-use crate::{
-    configuration::{DIVISION, OBJ_COUNT},
-    util::create_annulus_vertices,
-};
-
 pub struct State<'a> {
     surface: Surface<'a>,
     device: Device,
@@ -94,8 +89,7 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         // vertex buffer
-        let vertex_info =
-            create_annulus_vertices::<DIVISION>(0.5, 0.25, 0.0, f32::consts::PI * 2.0);
+        let vertex_info: [f32; 6] = [0.0, 0.5, -0.3, -0.3, 0.3, -0.3];
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -205,7 +199,7 @@ impl<'a> State<'a> {
         });
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..(DIVISION as u32) * 2 * 3, 0..OBJ_COUNT as u32);
+        render_pass.draw(0..3, 0..1);
         drop(render_pass);
         self.queue.submit(once(encoder.finish()));
         output.present();
