@@ -3,9 +3,14 @@ use std::{f32, iter::once, sync::Arc};
 use bytemuck::cast_slice;
 use rand::Rng;
 use wgpu::{
-    Adapter, BindGroup, Buffer, Device, Instance, Queue, RenderPipeline, Surface,
+    Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferBindingType,
+    BufferUsages, ColorTargetState, ColorWrites, Device, FragmentState, Instance,
+    PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline,
+    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface,
     SurfaceCapabilities, SurfaceConfiguration, SurfaceError, VertexAttribute, VertexBufferLayout,
-    util::DeviceExt,
+    VertexFormat, VertexState, VertexStepMode,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -97,10 +102,10 @@ impl<'a> State<'a> {
         // vertex buffer
         let vertex_info: [f32; 6] = [0.0, 0.0, 50.0, 150.0, 100.0, 0.0];
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: cast_slice(&vertex_info),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
 
         let angle: f32 = 0.0;
@@ -120,18 +125,18 @@ impl<'a> State<'a> {
             1.0, //scale,
         ];
 
-        let bind_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let bind_group_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: cast_slice(&bind_group_value),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
+        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            entries: &[BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -140,9 +145,9 @@ impl<'a> State<'a> {
             label: None,
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
+            entries: &[BindGroupEntry {
                 binding: 0,
                 resource: bind_group_buffer.as_entire_binding(),
             }],
@@ -150,22 +155,21 @@ impl<'a> State<'a> {
         });
 
         //shader
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
         //prepare render pipeline
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: None,
             layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
+            vertex: VertexState {
                 module: &shader,
                 entry_point: Some("vs"),
                 buffers: &[VertexBufferLayout {
@@ -173,27 +177,27 @@ impl<'a> State<'a> {
                     attributes: &[VertexAttribute {
                         shader_location: 0,
                         offset: 0,
-                        format: wgpu::VertexFormat::Float32x2,
+                        format: VertexFormat::Float32x2,
                     }],
-                    step_mode: wgpu::VertexStepMode::Vertex,
+                    step_mode: VertexStepMode::Vertex,
                 }],
                 compilation_options: Default::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(FragmentState {
                 module: &shader,
                 entry_point: Some("fs"),
-                targets: &[Some(wgpu::ColorTargetState {
+                targets: &[Some(ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
+                    blend: Some(BlendState {
+                        color: BlendComponent::REPLACE,
+                        alpha: BlendComponent::REPLACE,
                     }),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    write_mask: ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
