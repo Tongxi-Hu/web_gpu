@@ -1,9 +1,11 @@
 use std::{f32, iter::once, sync::Arc};
 
 use bytemuck::cast_slice;
+use rand::Rng;
 use wgpu::{
-    Adapter, Buffer, Device, Instance, Queue, RenderPipeline, Surface, SurfaceCapabilities,
-    SurfaceConfiguration, SurfaceError, VertexAttribute, VertexBufferLayout, util::DeviceExt,
+    Adapter, BindGroup, Buffer, Device, Instance, Queue, RenderPipeline, Surface,
+    SurfaceCapabilities, SurfaceConfiguration, SurfaceError, VertexAttribute, VertexBufferLayout,
+    util::DeviceExt,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -18,6 +20,9 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
+    bind_group_value: [f32; 8],
+    bind_group_buffer: Buffer,
+    bind_group: BindGroup,
 }
 
 impl<'a> State<'a> {
@@ -89,12 +94,53 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         // vertex buffer
-        let vertex_info: [f32; 6] = [0.0, 0.5, -0.3, -0.3, 0.3, -0.3];
+        let vertex_info: [f32; 6] = [0.0, 0.0, 30.0, 150.0, 30.0, 0.0];
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: cast_slice(&vertex_info),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let mut rng = rand::rng();
+        let bind_group_value: [f32; 8] = [
+            rng.random_range(0.0..1.0),
+            rng.random_range(0.0..1.0),
+            rng.random_range(0.0..1.0),
+            1.0, //color
+            config.width as f32,
+            config.height as f32, //resolution
+            0.0,
+            0.0, // translation
+        ];
+
+        let bind_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&bind_group_value),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: None,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bind_group_buffer.as_entire_binding(),
+            }],
+            label: None,
         });
 
         //shader
@@ -107,7 +153,7 @@ impl<'a> State<'a> {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -168,6 +214,9 @@ impl<'a> State<'a> {
             window: window_arc,
             render_pipeline,
             vertex_buffer,
+            bind_group_value,
+            bind_group_buffer,
+            bind_group,
         }
     }
 
@@ -176,9 +225,27 @@ impl<'a> State<'a> {
         self.config.width = self.size.width;
         self.config.height = self.size.height;
         self.surface.configure(&self.device, &self.config);
+        self.bind_group_value[4] = self.config.width as f32;
+        self.bind_group_value[5] = self.config.height as f32;
+        self.queue.write_buffer(
+            &self.bind_group_buffer,
+            0,
+            cast_slice(&self.bind_group_value),
+        );
+    }
+
+    pub fn translate(&mut self) {
+        self.bind_group_value[6] = self.bind_group_value[6] + 2.0;
+        self.bind_group_value[7] = self.bind_group_value[7] + 2.0;
+        self.queue.write_buffer(
+            &self.bind_group_buffer,
+            0,
+            cast_slice(&self.bind_group_value),
+        );
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
+        self.translate();
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -199,6 +266,7 @@ impl<'a> State<'a> {
         });
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
         drop(render_pass);
         self.queue.submit(once(encoder.finish()));
