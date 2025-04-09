@@ -7,5 +7,5 @@ mod state;
 mod util;
 
 fn main() {
-    block_on(run())
+    block_on(run());
 }
