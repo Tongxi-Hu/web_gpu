@@ -20,9 +20,10 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
-    bind_group_value: [f32; 8],
+    bind_group_value: [f32; 12],
     bind_group_buffer: Buffer,
     bind_group: BindGroup,
+    angle: f32,
 }
 
 impl<'a> State<'a> {
@@ -94,7 +95,7 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         // vertex buffer
-        let vertex_info: [f32; 6] = [0.0, 0.0, 30.0, 150.0, 30.0, 0.0];
+        let vertex_info: [f32; 6] = [0.0, 0.0, 50.0, 150.0, 100.0, 0.0];
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -102,8 +103,9 @@ impl<'a> State<'a> {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
+        let angle: f32 = 0.0;
         let mut rng = rand::rng();
-        let bind_group_value: [f32; 8] = [
+        let bind_group_value: [f32; 12] = [
             rng.random_range(0.0..1.0),
             rng.random_range(0.0..1.0),
             rng.random_range(0.0..1.0),
@@ -112,6 +114,10 @@ impl<'a> State<'a> {
             config.height as f32, //resolution
             0.0,
             0.0, // translation
+            angle.cos(),
+            angle.sin(), //rotation
+            0.0,
+            0.0, //padding
         ];
 
         let bind_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -217,6 +223,7 @@ impl<'a> State<'a> {
             bind_group_value,
             bind_group_buffer,
             bind_group,
+            angle,
         }
     }
 
@@ -234,9 +241,12 @@ impl<'a> State<'a> {
         );
     }
 
-    pub fn translate(&mut self) {
+    pub fn update(&mut self) {
+        self.angle = self.angle + 2.0 * std::f32::consts::PI / 180.0;
         self.bind_group_value[6] = self.bind_group_value[6] + 2.0;
         self.bind_group_value[7] = self.bind_group_value[7] + 2.0;
+        self.bind_group_value[8] = self.angle.cos();
+        self.bind_group_value[9] = self.angle.sin();
         self.queue.write_buffer(
             &self.bind_group_buffer,
             0,
@@ -245,7 +255,7 @@ impl<'a> State<'a> {
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
-        self.translate();
+        self.update();
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());

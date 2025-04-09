@@ -5,7 +5,8 @@ struct Vertex {
 struct Uni {
     color: vec4<f32>,
     resolution: vec2<f32>,
-    translation: vec2<f32>
+    translation: vec2<f32>,
+    rotation: vec2<f32>
 }
 
 struct Inter {
@@ -17,7 +18,8 @@ var<uniform> uni: Uni;
 
 @vertex
 fn vs(vertex: Vertex) -> Inter {
-    let position = vertex.position + uni.translation;
+    let rotated_position = vec2<f32>(vertex.position.x * uni.rotation.x - vertex.position.y * uni.rotation.y, vertex.position.x * uni.rotation.y + vertex.position.y * uni.rotation.x);
+    let position = rotated_position + uni.translation;
     let zero_to_one = position / uni.resolution;
     let zero_to_two = zero_to_one * 2.0;
     let flipped_clip_space = zero_to_two - 1.0;
