@@ -116,8 +116,8 @@ impl<'a> State<'a> {
             0.0, // translation
             angle.cos(),
             angle.sin(), //rotation
-            0.0,
-            0.0, //padding
+            1.0,
+            1.0, //scale,
         ];
 
         let bind_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -243,10 +243,13 @@ impl<'a> State<'a> {
 
     pub fn update(&mut self) {
         self.angle = self.angle + 2.0 * std::f32::consts::PI / 180.0;
-        self.bind_group_value[6] = self.bind_group_value[6] + 2.0;
-        self.bind_group_value[7] = self.bind_group_value[7] + 2.0;
+        self.bind_group_value[6] = self.bind_group_value[6] + 0.5;
+        self.bind_group_value[7] = self.bind_group_value[7] + 0.5;
         self.bind_group_value[8] = self.angle.cos();
         self.bind_group_value[9] = self.angle.sin();
+        self.bind_group_value[10] = self.bind_group_value[10] + 0.001;
+        self.bind_group_value[11] = self.bind_group_value[11] + 0.001;
+
         self.queue.write_buffer(
             &self.bind_group_buffer,
             0,
