@@ -1,7 +1,7 @@
-use std::{f32, iter::once, sync::Arc};
-
 use bytemuck::cast_slice;
+use pollster::FutureExt;
 use rand::Rng;
+use std::{f32, iter::once, sync::Arc};
 use wgpu::{
     Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferBindingType,
@@ -13,8 +13,6 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 use winit::{dpi::PhysicalSize, window::Window};
-
-use pollster::FutureExt;
 
 pub struct State<'a> {
     surface: Surface<'a>,
