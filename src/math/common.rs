@@ -28,5 +28,5 @@ pub trait Dimension3 {
 }
 
 pub trait Determinant {
-    fn det(&self) -> f64;
+    fn det(&self) -> f32;
 }

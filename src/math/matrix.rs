@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut, Mul};
 
-use super::common::FuzzyEq;
+use super::common::{Determinant, FuzzyEq};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Matrix<const D: usize> {
@@ -86,6 +86,49 @@ impl<const D: usize> Mul for Matrix<D> {
                 }
             }
         }
-        self
+        res
+    }
+}
+
+impl Determinant for Matrix<2> {
+    fn det(&self) -> f32 {
+        self[0][0] * self[1][1] - self[0][1] * self[1][0]
+    }
+}
+
+impl Matrix<3> {
+    pub fn translation(tx: f32, ty: f32) -> Self {
+        let mut trans = Self::identity();
+        trans.data[0][2] = tx;
+        trans.data[1][2] = ty;
+        trans
+    }
+
+    pub fn scale(sx: f32, sy: f32) -> Self {
+        let mut scale = Self::identity();
+        scale[0][0] = sx;
+        scale[1][1] = sy;
+        scale
+    }
+
+    pub fn rotation(deg: f32) -> Self {
+        let mut rotation = Self::identity();
+        let (cos, sin) = (deg.cos(), deg.sin());
+        rotation[0][0] = cos;
+        rotation[1][1] = cos;
+        rotation[0][1] = -sin;
+        rotation[1][0] = sin;
+        rotation
+    }
+}
+
+impl Determinant for Matrix<3> {
+    fn det(&self) -> f32 {
+        self[0][0] * self[1][1] * self[2][2]
+            + self[0][1] * self[1][2] * self[2][1]
+            + self[0][2] * self[1][0] * self[2][1]
+            - self[0][2] * self[1][1] * self[2][1]
+            - self[0][1] * self[1][0] * self[2][2]
+            - self[0][0] * self[1][2] * self[2][1]
     }
 }

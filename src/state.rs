@@ -1,7 +1,7 @@
 use bytemuck::cast_slice;
 use pollster::FutureExt;
 use rand::Rng;
-use std::{f32, iter::once, sync::Arc};
+use std::{f32, iter::once, ops::Mul, sync::Arc};
 use wgpu::{
     Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferBindingType,
@@ -14,6 +14,8 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
+use crate::math::matrix::Matrix;
+
 pub struct State<'a> {
     surface: Surface<'a>,
     device: Device,
@@ -23,10 +25,12 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
-    bind_group_value: [f32; 12],
+    bind_group_value: [f32; 20],
     bind_group_buffer: Buffer,
     bind_group: BindGroup,
     angle: f32,
+    translation: (f32, f32),
+    scale: f32,
 }
 
 impl<'a> State<'a> {
@@ -107,8 +111,14 @@ impl<'a> State<'a> {
         });
 
         let angle: f32 = 0.0;
+        let translation: (f32, f32) = (0.0, 0.0);
+        let scale: f32 = 1.0;
+        let mut transform = Matrix::<3>::scale(scale, scale);
+        transform = Matrix::<3>::rotation(angle).mul(transform);
+        transform = Matrix::<3>::translation(translation.0, translation.1).mul(transform);
+        transform = transform.transpose();
         let mut rng = rand::rng();
-        let bind_group_value: [f32; 12] = [
+        let bind_group_value: [f32; 20] = [
             rng.random_range(0.0..1.0),
             rng.random_range(0.0..1.0),
             rng.random_range(0.0..1.0),
@@ -116,11 +126,19 @@ impl<'a> State<'a> {
             config.width as f32,
             config.height as f32, //resolution
             0.0,
-            0.0, // translation
-            angle.cos(),
-            angle.sin(), //rotation
-            1.0,
-            1.0, //scale,
+            0.0, //padding
+            transform[0][0],
+            transform[0][1],
+            transform[0][2],
+            0.0,
+            transform[1][0],
+            transform[1][1],
+            transform[1][2],
+            0.0,
+            transform[2][0],
+            transform[2][1],
+            transform[2][2],
+            0.0,
         ];
 
         let bind_group_buffer = device.create_buffer_init(&BufferInitDescriptor {
@@ -226,6 +244,8 @@ impl<'a> State<'a> {
             bind_group_buffer,
             bind_group,
             angle,
+            scale,
+            translation,
         }
     }
 
@@ -245,12 +265,25 @@ impl<'a> State<'a> {
 
     pub fn update(&mut self) {
         self.angle = self.angle + 2.0 * std::f32::consts::PI / 180.0;
-        self.bind_group_value[6] = self.bind_group_value[6] + 0.5;
-        self.bind_group_value[7] = self.bind_group_value[7] + 0.5;
-        self.bind_group_value[8] = self.angle.cos();
-        self.bind_group_value[9] = self.angle.sin();
-        self.bind_group_value[10] = self.bind_group_value[10] + 0.001;
-        self.bind_group_value[11] = self.bind_group_value[11] + 0.001;
+        self.translation = (self.translation.0 + 0.5, self.translation.1 + 0.5);
+        self.scale = self.scale + 0.001;
+
+        let mut transform = Matrix::<3>::scale(self.scale, self.scale);
+        transform = Matrix::<3>::rotation(self.angle).mul(transform);
+        transform = Matrix::<3>::translation(self.translation.0, self.translation.1).mul(transform);
+        transform = transform.transpose();
+
+        self.bind_group_value[8] = transform[0][0];
+        self.bind_group_value[9] = transform[0][1];
+        self.bind_group_value[10] = transform[0][2];
+
+        self.bind_group_value[12] = transform[1][0];
+        self.bind_group_value[13] = transform[1][1];
+        self.bind_group_value[14] = transform[1][2];
+
+        self.bind_group_value[16] = transform[2][0];
+        self.bind_group_value[17] = transform[2][1];
+        self.bind_group_value[18] = transform[2][2];
 
         self.queue.write_buffer(
             &self.bind_group_buffer,
