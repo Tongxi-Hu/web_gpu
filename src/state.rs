@@ -114,8 +114,8 @@ impl<'a> State<'a> {
         let translation: (f32, f32) = (0.0, 0.0);
         let scale: f32 = 1.0;
         let mut transform = Matrix::<3>::scale(scale, scale);
-        transform = Matrix::<3>::rotation(angle).mul(transform);
-        transform = Matrix::<3>::translation(translation.0, translation.1).mul(transform);
+        transform = Matrix::<3>::rotate(angle).mul(transform);
+        transform = Matrix::<3>::translate(translation.0, translation.1).mul(transform);
         transform = transform.transpose();
         let mut rng = rand::rng();
         let bind_group_value: [f32; 20] = [
@@ -269,8 +269,8 @@ impl<'a> State<'a> {
         self.scale = self.scale + 0.001;
 
         let mut transform = Matrix::<3>::scale(self.scale, self.scale);
-        transform = Matrix::<3>::rotation(self.angle).mul(transform);
-        transform = Matrix::<3>::translation(self.translation.0, self.translation.1).mul(transform);
+        transform = Matrix::<3>::rotate(self.angle).mul(transform);
+        transform = Matrix::<3>::translate(self.translation.0, self.translation.1).mul(transform);
         transform = transform.transpose();
 
         self.bind_group_value[8] = transform[0][0];

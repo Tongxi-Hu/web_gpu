@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 
-use super::common::{Dimension4, FuzzyEq};
+use super::common::{Dimension3, Dimension4, FuzzyEq};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Vector<const D: usize> {
@@ -56,5 +56,23 @@ impl Dimension4 for Vector<4> {
 
     fn get_w(&self) -> Self::Value {
         self[3]
+    }
+}
+
+impl Dimension3 for Vector<3> {
+    type Value = f32;
+
+    fn new(x: Self::Value, y: Self::Value, z: Self::Value) -> Self {
+        Self { data: [x, y, z] }
+    }
+    fn get_x(&self) -> Self::Value {
+        self[0]
+    }
+
+    fn get_y(&self) -> Self::Value {
+        self[1]
+    }
+    fn get_z(&self) -> Self::Value {
+        self[2]
     }
 }

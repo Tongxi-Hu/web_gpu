@@ -17,7 +17,7 @@ var<uniform> uni: Uni;
 
 @vertex
 fn vs(vertex: Vertex) -> Inter {
-    let position = (uni.transform * vec3<f32>(vertex.position,1.0)).xy;
+    let position = (uni.transform * vec3<f32>(vertex.position, 1.0)).xy;
     let zero_to_one = position / uni.resolution;
     let zero_to_two = zero_to_one * 2.0;
     let flipped_clip_space = zero_to_two - 1.0;
